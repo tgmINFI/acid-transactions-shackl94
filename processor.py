@@ -16,34 +16,30 @@ class ShipmentProcessor:
 
         log_callback(f"--- STARTING TRANSACTION: Move {quantity} of {item_name} ---")
 
-        # ==============================================================================
-        # STUDENT TODO: Fix the Transaction Logic below.
-        # Currently, if Step 1 fails, Step 2 still runs, creating a "Ghost Shipment".
-        # Ensure the operation is ATOMIC (All or Nothing).
-        # ==============================================================================
-
         try:
             # STEP 1: Update Inventory
             # This will raise sqlite3.IntegrityError if stock becomes negative
-            cursor.execute("UPDATE inventory SET stock_qty = stock_qty - ? WHERE item_name = ?", 
-                           (quantity, item_name))
+            cursor.execute(
+                "UPDATE inventory SET stock_qty = stock_qty - ? WHERE item_name = ?",
+                (quantity, item_name)
+            )
             log_callback(">> STEP 1 SUCCESS: Inventory Deducted.")
 
-        except sqlite3.IntegrityError as e:
-            log_callback(f">> STEP 1 FAILED: {e}") 
-            # Hint: The code doesn't stop here! It continues to Step 2!
-
-        try:
-            # STEP 2: Log the Shipment
-            cursor.execute("INSERT INTO shipment_log (item_name, qty_moved) VALUES (?, ?)", 
-                           (item_name, quantity))
+            # STEP 2: Log the Shipment (only if step 1 succeeded)
+            cursor.execute(
+                "INSERT INTO shipment_log (item_name, qty_moved) VALUES (?, ?)",
+                (item_name, quantity)
+            )
             log_callback(">> STEP 2 SUCCESS: Shipment Logged.")
-        
-        except Exception as e:
-             log_callback(f">> STEP 2 FAILED: {e}")
 
-        # Final Commit
-        conn.commit()
-        log_callback("--- TRANSACTION COMMITTED ---")
-        
-        conn.close()
+            # Only commit if BOTH steps succeeded
+            conn.commit()
+            log_callback("--- TRANSACTION COMMITTED ---")
+
+        except Exception as e:
+            # Any failure: rollback everything (atomicity)
+            conn.rollback()
+            log_callback(f">> TRANSACTION FAILED - ROLLED BACK: {e}")
+
+        finally:
+            conn.close()
